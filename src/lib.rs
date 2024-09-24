@@ -33,7 +33,11 @@ impl CachelineEfVec<Vec<CachelineEf>> {
 impl<E: AsRef<[CachelineEf]>> CachelineEfVec<E> {
     pub fn index(&self, index: usize) -> u64 {
         // Note: This division is inlined by the compiler.
-        unsafe { (*self.ef.as_ref().get_unchecked(index / L)).get(index % L) }
+        self.ef.as_ref()[index / L].get(index % L)
+    }
+    pub unsafe fn index_unchecked(&self, index: usize) -> u64 {
+        // Note: This division is inlined by the compiler.
+        (*self.ef.as_ref().get_unchecked(index / L)).get(index % L)
     }
     pub fn prefetch(&self, index: usize) {
         prefetch_index(self.ef.as_ref(), index / L);
