@@ -44,7 +44,7 @@ version = "0.1.0"
 dependencies = [
  "common_traits 0.11.0",
  "epserde",
- "epserde-derive",
+ "mem_dbg",
  "rand",
 ]
 

@@ -13,7 +13,7 @@ const L: usize = 44;
 ///
 /// The main benefit is that this only requires reading a single cacheline per
 /// query, where Elias-Fano encoding usually needs 3 reads.
-#[derive(Default)]
+#[derive(Default, mem_dbg::MemSize, mem_dbg::MemDbg)]
 #[cfg_attr(feature = "epserde", derive(epserde::prelude::Epserde))]
 pub struct CachelineEfVec<E = Vec<CachelineEf>> {
     ef: E,
@@ -47,11 +47,12 @@ impl<E: AsRef<[CachelineEf]>> CachelineEfVec<E> {
 // This has size 64 bytes (one cacheline) and is aligned to 64bytes as well to
 // ensure it actually occupied a single cacheline.
 // It is marked `zero_copy` to be able to use it with lazy deserialization of ep-serde.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, mem_dbg::MemSize, mem_dbg::MemDbg)]
 #[repr(C)]
 #[repr(align(64))]
 #[cfg_attr(feature = "epserde", derive(epserde::prelude::Epserde))]
 #[cfg_attr(feature = "epserde", zero_copy)]
+#[copy_type]
 pub struct CachelineEf {
     // 2*64 = 128 bits to indicate where 256 boundaries are crossed.
     // There are 48 1-bits corresponding to the stored numbers, and the number
