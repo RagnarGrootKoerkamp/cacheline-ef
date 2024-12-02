@@ -59,7 +59,7 @@ impl<E: AsRef<[CachelineEf]>> CachelineEfVec<E> {
 #[copy_type]
 pub struct CachelineEf {
     // 2*64 = 128 bits to indicate where 256 boundaries are crossed.
-    // There are 48 1-bits corresponding to the stored numbers, and the number
+    // There are 44 1-bits corresponding to the stored numbers, and the number
     // of 0-bits before each number indicates the number of times 256 must be added.
     high_boundaries: [u64; 2],
     // The offset of the first element, divided by 256.
@@ -82,19 +82,23 @@ impl CachelineEf {
         );
         assert!(vals[l - 1] < (1 << 40));
 
-        let offset = vals[0] & !0xff;
+        let offset = vals[0] >> 8;
+        assert!(
+            offset <= u32::MAX as u64,
+            "vals[0] does not fit in 40 bits."
+        );
         let mut low_bits = [0u8; L];
         for (i, &v) in vals.iter().enumerate() {
             low_bits[i] = (v & 0xff) as u8;
         }
         let mut high_boundaries = [0u64; 2];
         for (i, &v) in vals.iter().enumerate() {
-            let idx = i + ((v - offset) >> 8) as usize;
+            let idx = i + ((v >> 8) - offset) as usize;
             assert!(idx < 128, "Value {} is too large!", v - offset);
             high_boundaries[idx / 64] |= 1 << (idx % 64);
         }
         Self {
-            reduced_offset: (offset >> 8) as u32,
+            reduced_offset: offset as u32,
             high_boundaries,
             low_bits,
         }
@@ -137,13 +141,13 @@ fn prefetch_index<T>(s: &[T], index: usize) {
 #[test]
 fn test() {
     let max = (128 - L) * 256;
+    let offset = rand::random::<u64>() % (1 << 40);
     let mut vals = [0u64; L];
-    for _ in 0..10000 {
+    for _ in 0..1000000 {
         for v in &mut vals {
-            *v = rand::random::<u64>() % max as u64;
+            *v = offset + rand::random::<u64>() % max as u64;
         }
         vals.sort_unstable();
-        vals[0] = 0;
 
         let lef = CachelineEf::new(&vals);
         for i in 0..L {
