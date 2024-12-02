@@ -13,7 +13,7 @@ const L: usize = 44;
 ///
 /// The main benefit is that this only requires reading a single cacheline per
 /// query, where Elias-Fano encoding usually needs 3 reads.
-#[derive(Default, mem_dbg::MemSize, mem_dbg::MemDbg)]
+#[derive(Default, Clone, mem_dbg::MemSize, mem_dbg::MemDbg)]
 #[cfg_attr(feature = "epserde", derive(epserde::prelude::Epserde))]
 pub struct CachelineEfVec<E = Vec<CachelineEf>> {
     ef: E,
