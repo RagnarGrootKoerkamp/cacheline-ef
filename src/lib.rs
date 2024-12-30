@@ -17,6 +17,7 @@ const L: usize = 44;
 #[cfg_attr(feature = "epserde", derive(epserde::prelude::Epserde))]
 pub struct CachelineEfVec<E = Vec<CachelineEf>> {
     ef: E,
+    len: usize,
 }
 
 impl CachelineEfVec<Vec<CachelineEf>> {
@@ -26,14 +27,21 @@ impl CachelineEfVec<Vec<CachelineEf>> {
             p.push(CachelineEf::new(&vals[i..min(i + L, vals.len())]));
         }
 
-        Self { ef: p }
+        Self {
+            ef: p,
+            len: vals.len(),
+        }
     }
 }
 
 impl<E: AsRef<[CachelineEf]>> CachelineEfVec<E> {
     pub fn index(&self, index: usize) -> u64 {
+        assert!(index < self.len, "Index out of bounds.");
         // Note: This division is inlined by the compiler.
-        self.ef.as_ref()[index / L].get(index % L)
+        unsafe { self.ef.as_ref().get_unchecked(index / L).get(index % L) }
+    }
+    pub fn len(&self) -> usize {
+        self.len
     }
     pub unsafe fn index_unchecked(&self, index: usize) -> u64 {
         // Note: This division is inlined by the compiler.
@@ -75,10 +83,11 @@ impl CachelineEf {
         let l = vals.len();
         assert!(
             vals[l - 1] - vals[0] <= 256 * (128 - L as u64),
-            "Range of values {} ({} to {}) is too large!",
+            "Range of values {} ({} to {}) is too large! Can be at most {}.",
             vals[l - 1] - vals[0],
             vals[0],
-            vals[l - 1]
+            vals[l - 1],
+            256 * (128 - L as u64)
         );
         assert!(vals[l - 1] < (1 << 40));
 
