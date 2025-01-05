@@ -36,7 +36,11 @@ impl CachelineEfVec<Vec<CachelineEf>> {
 
 impl<E: AsRef<[CachelineEf]>> CachelineEfVec<E> {
     pub fn index(&self, index: usize) -> u64 {
-        assert!(index < self.len, "Index out of bounds.");
+        assert!(
+            index < self.len,
+            "Index {index} out of bounds. Length is {}.",
+            self.len
+        );
         // Note: This division is inlined by the compiler.
         unsafe { self.ef.as_ref().get_unchecked(index / L).get(index % L) }
     }
@@ -78,8 +82,12 @@ pub struct CachelineEf {
 
 impl CachelineEf {
     fn new(vals: &[u64]) -> Self {
-        assert!(!vals.is_empty());
-        assert!(vals.len() <= L);
+        assert!(!vals.is_empty(), "List of values must not be empty.");
+        assert!(
+            vals.len() <= L,
+            "Number of values must be at most {L}, but is {}",
+            vals.len()
+        );
         let l = vals.len();
         assert!(
             vals[l - 1] - vals[0] <= 256 * (128 - L as u64),
@@ -89,7 +97,12 @@ impl CachelineEf {
             vals[l - 1],
             256 * (128 - L as u64)
         );
-        assert!(vals[l - 1] < (1 << 40));
+        assert!(
+            vals[l - 1] < (1 << 40),
+            "Last value {} is too large! Must be less than 2^40={}",
+            vals[l - 1],
+            1 << 40
+        );
 
         let offset = vals[0] >> 8;
         assert!(
