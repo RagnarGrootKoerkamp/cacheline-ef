@@ -98,10 +98,10 @@ impl CachelineEf {
             256 * (128 - L as u64)
         );
         assert!(
-            vals[l - 1] < (1 << 40),
+            vals[l - 1] < (1u64 << 40),
             "Last value {} is too large! Must be less than 2^40={}",
             vals[l - 1],
-            1 << 40
+            1u64 << 40
         );
 
         let offset = vals[0] >> 8;
