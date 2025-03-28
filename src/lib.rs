@@ -3,6 +3,7 @@
 //! [`CachelineEf`] is an integer encoding that packs chunks of 44 sorted 40-bit values into a single
 //! cacheline, using `64/44*8 = 11.6` bits per value.
 //! Each chunk can hold increasing values in a range of length `256*84=21504`.
+//! If this range is exceeded, [`CachelineEfVec::new`] will panic while [`CachelineEf::try_new`] will return `None`.
 //!
 //! [`CachelineEfVec`] stores a vector of [`CachelineEf`] and provides [`CachelineEfVec::index`] and [`CachelineEfVec::prefetch`].
 //!
@@ -46,16 +47,26 @@ impl CachelineEfVec<Vec<CachelineEf>> {
     /// - the input is not sorted,
     /// - the input values are over 2^40,
     /// - there is a cacheline where the values span a too large range.
-    pub fn new(vals: &[u64]) -> Self {
+    pub fn try_new(vals: &[u64]) -> Option<Self> {
         let mut p = Vec::with_capacity(vals.len().div_ceil(L));
         for i in (0..vals.len()).step_by(L) {
-            p.push(CachelineEf::new(&vals[i..min(i + L, vals.len())]));
+            p.push(CachelineEf::try_new(&vals[i..min(i + L, vals.len())])?);
         }
 
-        Self {
+        Some(Self {
             ef: p,
             len: vals.len(),
-        }
+        })
+    }
+
+    /// Construct a new `CachelineEfVec` for a list of `u64` values.
+    ///
+    /// Panics when:
+    /// - the input is not sorted,
+    /// - the input values are over 2^40,
+    /// - there is a cacheline where the values span a too large range.
+    pub fn new(vals: &[u64]) -> Self {
+        Self::try_new(vals).expect("Values are too sparse!")
     }
 }
 
@@ -100,18 +111,18 @@ impl<E: AsRef<[CachelineEf]>> CachelineEfVec<E> {
 #[cfg_attr(feature = "epserde", zero_copy)]
 #[copy_type]
 pub struct CachelineEf {
-    // 2*64 = 128 bits to indicate where 256 boundaries are crossed.
-    // There are 44 1-bits corresponding to the stored numbers, and the number
-    // of 0-bits before each number indicates the number of times 256 must be added.
+    /// 2*64 = 128 bits to indicate where 256 boundaries are crossed.
+    /// There are 44 1-bits corresponding to the stored numbers, and the number
+    /// of 0-bits before each number indicates the number of times 256 must be added.
     high_boundaries: [u64; 2],
-    // The offset of the first element, divided by 256.
+    /// The offset of the first element, divided by 256.
     reduced_offset: u32,
-    // Last 8 bits of each number.
+    /// Last 8 bits of each number.
     low_bits: [u8; L],
 }
 
 impl CachelineEf {
-    fn new(vals: &[u64]) -> Self {
+    fn try_new(vals: &[u64]) -> Option<Self> {
         assert!(!vals.is_empty(), "List of values must not be empty.");
         assert!(
             vals.len() <= L,
@@ -119,14 +130,17 @@ impl CachelineEf {
             vals.len()
         );
         let l = vals.len();
-        assert!(
-            vals[l - 1] - vals[0] <= 256 * (128 - L as u64),
-            "Range of values {} ({} to {}) is too large! Can be at most {}.",
-            vals[l - 1] - vals[0],
-            vals[0],
-            vals[l - 1],
-            256 * (128 - L as u64)
-        );
+        if vals[l - 1] - vals[0] > 256 * (128 - L as u64) {
+            return None;
+        }
+        // assert!(
+        //     vals[l - 1] - vals[0] <= 256 * (128 - L as u64),
+        //     "Range of values {} ({} to {}) is too large! Can be at most {}.",
+        //     vals[l - 1] - vals[0],
+        //     vals[0],
+        //     vals[l - 1],
+        //     256 * (128 - L as u64)
+        // );
         assert!(
             vals[l - 1] < (1u64 << 40),
             "Last value {} is too large! Must be less than 2^40={}",
@@ -146,17 +160,17 @@ impl CachelineEf {
         let mut high_boundaries = [0u64; 2];
         let mut last = 0;
         for (i, &v) in vals.iter().enumerate() {
-            assert!(i >= last);
+            assert!(i >= last, "Values are not sorted! {last} > {i}");
             last = i;
             let idx = i + ((v >> 8) - offset) as usize;
             assert!(idx < 128, "Value {} is too large!", v - offset);
             high_boundaries[idx / 64] |= 1 << (idx % 64);
         }
-        Self {
+        Some(Self {
             reduced_offset: offset as u32,
             high_boundaries,
             low_bits,
-        }
+        })
     }
 
     /// Get the value a the given index.
@@ -207,9 +221,14 @@ fn test() {
         }
         vals.sort_unstable();
 
-        let lef = CachelineEf::new(&vals);
+        let lef = CachelineEf::try_new(&vals).unwrap();
         for i in 0..L {
             assert_eq!(lef.index(i), vals[i], "error; full list: {:?}", vals);
         }
     }
+}
+
+#[test]
+fn size() {
+    assert_eq!(std::mem::size_of::<CachelineEf>(), 64);
 }
