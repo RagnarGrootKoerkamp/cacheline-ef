@@ -1,12 +1,12 @@
 [package]
 name = "cacheline-ef"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 
 [dependencies]
+mem_dbg = "0.3.0"
 common_traits = "0.11.0"
 epserde = { version = "0.8.0", optional = true }
-mem_dbg = "0.3.0"
 
 [features]
 epserde = ["dep:epserde"]

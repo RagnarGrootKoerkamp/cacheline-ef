@@ -1,6 +1,6 @@
 //! # Cacheline Elias-Fano
 //!
-//! [`CachelineEf`] is an integer encoding that packs chunks of 44 40-bit values into a single
+//! [`CachelineEf`] is an integer encoding that packs chunks of 44 sorted 40-bit values into a single
 //! cacheline, using `64/44*8 = 11.6` bits per value.
 //! Each chunk can hold increasing values in a range of length `256*84=21504`.
 //!
@@ -13,6 +13,17 @@
 //! query, where Elias-Fano encoding usually needs 3 reads.
 //!
 //! Epserde is supported when the `epserde` feature flag is enabled.
+//!
+//! ## Layout
+//!
+//! The layout is described in detail in the PtrHash paper ([arXiv](https://arxiv.org/abs/2502.15539),
+//! [blog version](https://curiouscoding.nl/posts/ptrhash)).
+//!
+//! In summary:
+//! - First store a 4 byte offset, corresponding to the 32 high bits of the smallest value.
+//! - Then store for each of 44 values the 8 low bits.
+//! - Lastly we have 16 bytes (128 bits) to encode the high parts.
+//!   For the i'th value `x[i]`, we set the bit at position `i+(x[i]/256 - x[0]/256)` to `1`.
 
 use common_traits::SelectInWord;
 use std::cmp::min;
@@ -20,7 +31,7 @@ use std::cmp::min;
 /// Number of stored values per unit.
 const L: usize = 44;
 
-/// A vector of [`CachelineEF`].
+/// A vector of [`CachelineEf`].
 #[derive(Default, Clone, mem_dbg::MemSize, mem_dbg::MemDbg)]
 #[cfg_attr(feature = "epserde", derive(epserde::prelude::Epserde))]
 pub struct CachelineEfVec<E = Vec<CachelineEf>> {
@@ -29,6 +40,12 @@ pub struct CachelineEfVec<E = Vec<CachelineEf>> {
 }
 
 impl CachelineEfVec<Vec<CachelineEf>> {
+    /// Construct a new `CachelineEfVec` for a list of `u64` values.
+    ///
+    /// Panics when:
+    /// - the input is not sorted,
+    /// - the input values are over 2^40,
+    /// - there is a cacheline where the values span a too large range.
     pub fn new(vals: &[u64]) -> Self {
         let mut p = Vec::with_capacity(vals.len().div_ceil(L));
         for i in (0..vals.len()).step_by(L) {
@@ -43,6 +60,7 @@ impl CachelineEfVec<Vec<CachelineEf>> {
 }
 
 impl<E: AsRef<[CachelineEf]>> CachelineEfVec<E> {
+    /// Get the value at the given index in the vector.
     pub fn index(&self, index: usize) -> u64 {
         assert!(
             index < self.len,
@@ -52,16 +70,20 @@ impl<E: AsRef<[CachelineEf]>> CachelineEfVec<E> {
         // Note: This division is inlined by the compiler.
         unsafe { self.ef.as_ref().get_unchecked(index / L).index(index % L) }
     }
+    /// The number of values stored.
     pub fn len(&self) -> usize {
         self.len
     }
+    /// Get the value at the given index in the vector, and do not check bounds.
     pub unsafe fn index_unchecked(&self, index: usize) -> u64 {
         // Note: This division is inlined by the compiler.
         (*self.ef.as_ref().get_unchecked(index / L)).index(index % L)
     }
+    /// Prefetch the cacheline containing the given element.
     pub fn prefetch(&self, index: usize) {
         prefetch_index(self.ef.as_ref(), index / L);
     }
+    /// The size of the underlying vector, in bytes.
     pub fn size_in_bytes(&self) -> usize {
         std::mem::size_of_val(self.ef.as_ref())
     }
@@ -122,7 +144,10 @@ impl CachelineEf {
             low_bits[i] = (v & 0xff) as u8;
         }
         let mut high_boundaries = [0u64; 2];
+        let mut last = 0;
         for (i, &v) in vals.iter().enumerate() {
+            assert!(i >= last);
+            last = i;
             let idx = i + ((v >> 8) - offset) as usize;
             assert!(idx < 128, "Value {} is too large!", v - offset);
             high_boundaries[idx / 64] |= 1 << (idx % 64);
