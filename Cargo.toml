@@ -2,6 +2,13 @@
 name = "cacheline-ef"
 version = "1.0.0"
 edition = "2021"
+license = "MIT"
+authors = ["Ragnar Groot Koerkamp"]
+repository = "https://github.com/RagnarGrootKoerkamp/cacheline-ef"
+description = "Per-cacheline encoding of sorted integer sequences"
+keywords = ["Elias-Fano", "compression"]
+categories = ["data-structures", "science"]
+
 
 [dependencies]
 mem_dbg = "0.3.0"
