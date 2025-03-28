@@ -1,18 +1,26 @@
+//! # Cacheline Elias-Fano
+//!
+//! [`CachelineEf`] is an integer encoding that packs chunks of 44 40-bit values into a single
+//! cacheline, using `64/44*8 = 11.6` bits per value.
+//! Each chunk can hold increasing values in a range of length `256*84=21504`.
+//!
+//! [`CachelineEfVec`] stores a vector of [`CachelineEf`] and provides [`CachelineEfVec::index`] and [`CachelineEfVec::prefetch`].
+//!
+//! This encoding is efficient when consecutive values differ by roughly 100, where using
+//! Elias-Fano directly on the full list would use around `9` bits/value.
+//!
+//! The main benefit is that CachelineEf only requires reading a single cacheline per
+//! query, where Elias-Fano encoding usually needs 3 reads.
+//!
+//! Epserde is supported when the `epserde` feature flag is enabled.
+
 use common_traits::SelectInWord;
 use std::cmp::min;
 
 /// Number of stored values per unit.
 const L: usize = 44;
 
-/// `CachelineEf` is an integer encoding that packs chunks of 44 40-bit values into a single
-/// cacheline, using 64/44*8 = 11.6 bits per value.
-/// Each chunk can hold increasing values in a range of length 256*84=21504.
-///
-/// This is efficient when consecutive values differ by roughly 100, where using
-/// Elias-Fano directly on the full list would use around 9 bits/value.
-///
-/// The main benefit is that this only requires reading a single cacheline per
-/// query, where Elias-Fano encoding usually needs 3 reads.
+/// A vector of [`CachelineEF`].
 #[derive(Default, Clone, mem_dbg::MemSize, mem_dbg::MemDbg)]
 #[cfg_attr(feature = "epserde", derive(epserde::prelude::Epserde))]
 pub struct CachelineEfVec<E = Vec<CachelineEf>> {
@@ -42,14 +50,14 @@ impl<E: AsRef<[CachelineEf]>> CachelineEfVec<E> {
             self.len
         );
         // Note: This division is inlined by the compiler.
-        unsafe { self.ef.as_ref().get_unchecked(index / L).get(index % L) }
+        unsafe { self.ef.as_ref().get_unchecked(index / L).index(index % L) }
     }
     pub fn len(&self) -> usize {
         self.len
     }
     pub unsafe fn index_unchecked(&self, index: usize) -> u64 {
         // Note: This division is inlined by the compiler.
-        (*self.ef.as_ref().get_unchecked(index / L)).get(index % L)
+        (*self.ef.as_ref().get_unchecked(index / L)).index(index % L)
     }
     pub fn prefetch(&self, index: usize) {
         prefetch_index(self.ef.as_ref(), index / L);
@@ -59,7 +67,7 @@ impl<E: AsRef<[CachelineEf]>> CachelineEfVec<E> {
     }
 }
 
-/// Single-cacheline Elias-Fano encoding that holds 44 40-bit values in a range of size 256*84=21504.
+/// A single cacheline that holds 44 Elias-Fano encoded 40-bit values in a range of size `256*84=21504`.
 // This has size 64 bytes (one cacheline) and is aligned to 64bytes as well to
 // ensure it actually occupied a single cacheline.
 // It is marked `zero_copy` to be able to use it with lazy deserialization of ep-serde.
@@ -126,7 +134,10 @@ impl CachelineEf {
         }
     }
 
-    fn get(&self, idx: usize) -> u64 {
+    /// Get the value a the given index.
+    ///
+    /// Panics when `idx` is out of bounds.
+    pub fn index(&self, idx: usize) -> u64 {
         let p = self.high_boundaries[0].count_ones() as usize;
         let one_pos = if idx < p {
             self.high_boundaries[0].select_in_word(idx)
@@ -173,7 +184,7 @@ fn test() {
 
         let lef = CachelineEf::new(&vals);
         for i in 0..L {
-            assert_eq!(lef.get(i), vals[i], "error; full list: {:?}", vals);
+            assert_eq!(lef.index(i), vals[i], "error; full list: {:?}", vals);
         }
     }
 }
